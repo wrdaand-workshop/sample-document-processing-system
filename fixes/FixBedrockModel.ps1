@@ -42,14 +42,18 @@ $jsonFiles = Get-ChildItem -Path $ProjectDirectory -Filter "appsettings*.json" -
 foreach ($file in $jsonFiles) {
     $content = Get-Content -Path $file.FullName -Raw
     $changed = $false
+    # First, normalize: replace the already-correct model ID with a placeholder to protect it
+    $placeholder = "___CORRECT_MODEL___"
+    $content = $content -replace [regex]::Escape($NewModelId), $placeholder
+    # Now replace all old model IDs (none of which will accidentally match the correct one)
     foreach ($old in $oldModels) {
         if ($content -match [regex]::Escape($old)) {
-            # Avoid double-prefixing: remove any existing us. prefix before the match, then replace
-            $content = $content -replace ('us\.' + [regex]::Escape($old)), $NewModelId
-            $content = $content -replace [regex]::Escape($old), $NewModelId
+            $content = $content -replace [regex]::Escape($old), $placeholder
             $changed = $true
         }
     }
+    # Restore placeholder to the correct model ID
+    $content = $content -replace [regex]::Escape($placeholder), $NewModelId
     if ($changed) {
         Set-Content -Path $file.FullName -Value $content -Force
         Write-Host "  Updated: $($file.FullName)" -ForegroundColor Green
