@@ -1,1 +1,0 @@
-Start-Process -FilePath "dotnet" -ArgumentList "run","--project","C:\MAM319\DPS\src\DocumentProcessor.Web\DocumentProcessor.Web.csproj","--configuration","Release" -NoNewWindow
