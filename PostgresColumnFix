@@ -1,0 +1,3 @@
+ALTER TABLE "Documents" 
+  ALTER COLUMN "IsDeleted" SET DATA TYPE integer 
+  USING ("IsDeleted"::integer);
