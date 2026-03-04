@@ -8,13 +8,6 @@ param(
     [string]$NewModelId = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 )
 
-$oldModels = @(
-    "anthropic.claude-3-5-sonnet-20240620-v1:0",
-    "anthropic.claude-3-haiku-20240307-v1:0",
-    "anthropic.claude-3-sonnet-20240229-v1:0",
-    "anthropic.claude-haiku-4-5-20251001-v1:0"
-)
-
 if (-not (Test-Path $ProjectDirectory)) {
     Write-Host "ERROR: Directory not found: $ProjectDirectory" -ForegroundColor Red
     exit 1
@@ -23,11 +16,23 @@ if (-not (Test-Path $ProjectDirectory)) {
 Write-Host ""
 Write-Host "=== Fix Bedrock Model ===" -ForegroundColor Cyan
 
-# --- Stop running app first ---
-Write-Host "Stopping existing app process..." -ForegroundColor Cyan
-Get-Process -Name "dotnet" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+# --- Stop only the app running from this project directory ---
+Write-Host "Stopping app process for $ProjectDirectory ..." -ForegroundColor Cyan
+$stoppedAny = $false
+Get-Process -Name "dotnet" -ErrorAction SilentlyContinue | ForEach-Object {
+    try {
+        $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $($_.Id)" -ErrorAction SilentlyContinue).CommandLine
+        if ($cmdLine -and $cmdLine -like "*$ProjectDirectory*") {
+            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+            Write-Host "  Stopped PID $($_.Id)" -ForegroundColor Green
+            $stoppedAny = $true
+        }
+    } catch {}
+}
+if (-not $stoppedAny) {
+    Write-Host "  No matching dotnet process found (may not be running)." -ForegroundColor Yellow
+}
 Start-Sleep -Seconds 2
-Write-Host "Done." -ForegroundColor Green
 
 Write-Host "Updating model IDs to: $NewModelId" -ForegroundColor Cyan
 Write-Host ""
@@ -41,19 +46,11 @@ $jsonFiles = Get-ChildItem -Path $ProjectDirectory -Filter "appsettings*.json" -
 
 foreach ($file in $jsonFiles) {
     $content = Get-Content -Path $file.FullName -Raw
-    $changed = $false
-    # First, normalize: replace the already-correct model ID with a placeholder to protect it
-    $placeholder = "___CORRECT_MODEL___"
-    $content = $content -replace [regex]::Escape($NewModelId), $placeholder
-    # Now replace all old model IDs (none of which will accidentally match the correct one)
-    foreach ($old in $oldModels) {
-        if ($content -match [regex]::Escape($old)) {
-            $content = $content -replace [regex]::Escape($old), $placeholder
-            $changed = $true
-        }
-    }
-    # Restore placeholder to the correct model ID
-    $content = $content -replace [regex]::Escape($placeholder), $NewModelId
+    $original = $content
+    # Replace any model ID (with any number of us. prefixes) to the correct value
+    # This handles: anthropic.claude-*, us.anthropic.claude-*, us.us.anthropic.claude-*, etc.
+    $content = $content -replace '(us\.)*anthropic\.claude-[a-zA-Z0-9\.\-]+v\d+:\d+', $NewModelId
+    $changed = $content -ne $original
     if ($changed) {
         Set-Content -Path $file.FullName -Value $content -Force
         Write-Host "  Updated: $($file.FullName)" -ForegroundColor Green
